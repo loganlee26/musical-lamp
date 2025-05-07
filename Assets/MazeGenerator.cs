@@ -1,62 +1,61 @@
 using UnityEngine;
 using UnityEngine.Tilemaps;
+using System.Collections.Generic;
 
 public class MazeGenerator : MonoBehaviour
 {
-    public Tilemap tilemap;  // The Tilemap to place tiles in
-    public RuleTile wallTile;  // The Rule Tile for walls
-    public RuleTile floorTile; // The Rule Tile for floors
-    public RuleTile startTile; // The Rule Tile for the start point
-    public RuleTile endTile;   // The Rule Tile for the end point
+    public Tilemap tilemap;
+    public RuleTile wallTile;
+    public RuleTile floorTile;
+    public RuleTile startTile;
+    public RuleTile endTile;
+    public RuleTile doorTile;
+    public RuleTile keyTile;
 
     public int width = 10;
     public int height = 10;
 
     private int[,] maze;
+    private List<Vector2Int> solutionPath = new List<Vector2Int>();
+    private Vector2Int doorPos;
+    private Vector2Int keyPos;
 
     void Start()
     {
-        maze = new int[width + 2, height + 2];  // Increase the size of the maze to accommodate the boundary
-        GenerateMaze(1, 1);  // Start the maze generation inside the new boundary
+        maze = new int[width + 2, height + 2];
+        GenerateMaze(1, 1);
+        FindSolutionPath();
+        PlaceDoor();
+        PlaceKey();
         DrawMaze();
     }
 
     public void GenerateMaze(int startX, int startY)
     {
-        // Initialize maze: set all cells to walls
-        for (int x = 0; x < width + 2; x++)  // Adjust for new maze size
-        {
-            for (int y = 0; y < height + 2; y++)  // Adjust for new maze size
-            {
-                maze[x, y] = 0;  // 0 represents wall
-            }
-        }
+        for (int x = 0; x < width + 2; x++)
+            for (int y = 0; y < height + 2; y++)
+                maze[x, y] = 0;
 
-        // Create the inner maze using DFS
         DFS(startX, startY);
 
-        // Ensure start and end points are open
-        maze[1, 1] = 1; // Start point (bottom-left inside the boundary)
-        maze[width, height] = 1; // End point (top-right inside the boundary)
+        maze[1, 1] = 1;
+        maze[width, height] = 1;
 
-        // Ensure that top-right corner is connected to open paths
         EnsurePathToTopRight();
     }
 
     void DFS(int x, int y)
     {
-        maze[x, y] = 1;  // Mark the current cell as part of the path (1 = path)
+        maze[x, y] = 1;
 
-        // Randomly shuffle the directions to add randomness
         var directions = new Vector2Int[]
         {
-            new Vector2Int(0, 2), // Up
-            new Vector2Int(2, 0), // Right
-            new Vector2Int(0, -2), // Down
-            new Vector2Int(-2, 0) // Left
+            new Vector2Int(0, 2),
+            new Vector2Int(2, 0),
+            new Vector2Int(0, -2),
+            new Vector2Int(-2, 0)
         };
 
-        // Shuffle the directions to ensure randomness
         directions = ShuffleDirections(directions);
 
         foreach (var dir in directions)
@@ -64,11 +63,10 @@ public class MazeGenerator : MonoBehaviour
             int newX = x + dir.x;
             int newY = y + dir.y;
 
-            // Check if the new position is within bounds and is a wall
             if (IsInBounds(newX, newY) && maze[newX, newY] == 0)
             {
-                maze[x + dir.x / 2, y + dir.y / 2] = 1; // Carve the path between current and new cell
-                DFS(newX, newY); // Recursively visit the new cell
+                maze[x + dir.x / 2, y + dir.y / 2] = 1;
+                DFS(newX, newY);
             }
         }
     }
@@ -78,7 +76,7 @@ public class MazeGenerator : MonoBehaviour
         for (int i = 0; i < directions.Length; i++)
         {
             int j = Random.Range(0, directions.Length);
-            Vector2Int temp = directions[i];
+            var temp = directions[i];
             directions[i] = directions[j];
             directions[j] = temp;
         }
@@ -87,50 +85,169 @@ public class MazeGenerator : MonoBehaviour
 
     bool IsInBounds(int x, int y)
     {
-        // Adjust for boundary: the player can't move outside the boundaries of the maze
         return x > 0 && x < width + 1 && y > 0 && y < height + 1;
     }
 
+    public void FindSolutionPath()
+    {
+        solutionPath.Clear();
+        Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
+        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+        Vector2Int start = new Vector2Int(1, 1);
+        Vector2Int end = new Vector2Int(width, height);
+        queue.Enqueue(start);
+        cameFrom[start] = start;
+
+        while (queue.Count > 0)
+        {
+            Vector2Int current = queue.Dequeue();
+            if (current == end) break;
+
+            foreach (var dir in new Vector2Int[] {
+                Vector2Int.up, Vector2Int.right, Vector2Int.down, Vector2Int.left })
+            {
+                Vector2Int neighbor = current + dir;
+                if (IsInBounds(neighbor.x, neighbor.y) &&
+                    maze[neighbor.x, neighbor.y] == 1 &&
+                    !cameFrom.ContainsKey(neighbor))
+                {
+                    cameFrom[neighbor] = current;
+                    queue.Enqueue(neighbor);
+                }
+            }
+        }
+
+        // Reconstruct path
+        Vector2Int pathPos = end;
+        while (pathPos != start)
+        {
+            solutionPath.Add(pathPos);
+            pathPos = cameFrom[pathPos];
+        }
+        solutionPath.Add(start);
+        solutionPath.Reverse();
+    }
+
+    public void PlaceDoor()
+    {
+        // Move the door closer to the end, e.g., one third of the way through the solution path
+        int doorIndex = solutionPath.Count * 2 / 3; // Move door closer to the end
+        doorPos = solutionPath[doorIndex];
+        maze[doorPos.x, doorPos.y] = 0; // Wall until unlocked
+    }
+
+    public void PlaceKey()
+    {
+        // Try finding a valid key location, retry if it fails
+        bool keyPlaced = false;
+        int maxRetries = 10;  // Limit the number of retries to avoid an infinite loop
+        int retries = 0;
+
+        while (!keyPlaced && retries < maxRetries)
+        {
+            // BFS from start, avoid the door tile
+            Queue<Vector2Int> queue = new Queue<Vector2Int>();
+            HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
+            List<Vector2Int> candidates = new List<Vector2Int>();
+
+            Vector2Int start = new Vector2Int(1, 1);
+            queue.Enqueue(start);
+            visited.Add(start);
+
+            // Perform BFS to find a valid location for the key
+            while (queue.Count > 0)
+            {
+                Vector2Int current = queue.Dequeue();
+
+                // Ensure the candidate is not on the solution path or door
+                if (!solutionPath.Contains(current) && current != doorPos)
+                    candidates.Add(current);
+
+                foreach (var dir in new Vector2Int[] {
+                Vector2Int.up, Vector2Int.right, Vector2Int.down, Vector2Int.left })
+                {
+                    Vector2Int neighbor = current + dir;
+                    if (IsInBounds(neighbor.x, neighbor.y) &&
+                        maze[neighbor.x, neighbor.y] == 1 &&
+                        !visited.Contains(neighbor) &&
+                        neighbor != doorPos)
+                    {
+                        visited.Add(neighbor);
+                        queue.Enqueue(neighbor);
+                    }
+                }
+            }
+
+            if (candidates.Count > 0)
+            {
+                // Choose a random candidate for the key's position
+                keyPos = candidates[Random.Range(0, candidates.Count)];
+                keyPlaced = true;
+            }
+            else
+            {
+                // If no valid place for the key was found, regenerate the maze and retry
+                Debug.LogWarning("Could not find a valid place for the key, regenerating maze...");
+                GenerateMaze(1, 1);  // Regenerate the maze
+                FindSolutionPath();  // Find the solution path again
+                PlaceDoor();  // Place the door again
+                retries++;
+            }
+        }
+
+        // If we exhausted retries, log a warning
+        if (!keyPlaced)
+        {
+            Debug.LogError("Failed to place the key after multiple attempts.");
+            keyPos = new Vector2Int(1, 1); // Fallback in case of failure
+        }
+    }
+
+
     public void DrawMaze()
     {
-        // Draw the maze on the tilemap
-        for (int x = 0; x < width + 2; x++)  // Adjust for new maze size
+        for (int x = 0; x < width + 2; x++)
         {
-            for (int y = 0; y < height + 2; y++)  // Adjust for new maze size
+            for (int y = 0; y < height + 2; y++)
             {
                 Vector3Int cellPosition = new Vector3Int(x, y, 0);
 
-                if (maze[x, y] == 0)
-                    tilemap.SetTile(cellPosition, wallTile);  // Place wall
+                if (x == doorPos.x && y == doorPos.y)
+                {
+                    tilemap.SetTile(cellPosition, doorTile);
+                }
+                else if (x == keyPos.x && y == keyPos.y)
+                {
+                    tilemap.SetTile(cellPosition, keyTile);
+                }
+                else if (maze[x, y] == 0)
+                {
+                    tilemap.SetTile(cellPosition, wallTile);
+                }
                 else
                 {
-                    tilemap.SetTile(cellPosition, floorTile); // Place floor
-
-                    // Mark start and end points
+                    tilemap.SetTile(cellPosition, floorTile);
                     if (x == 1 && y == 1)
-                        tilemap.SetTile(cellPosition, startTile);  // Start point (bottom-left inside the boundary)
+                        tilemap.SetTile(cellPosition, startTile);
                     else if (x == width && y == height)
-                        tilemap.SetTile(cellPosition, endTile);    // End point (top-right inside the boundary)
+                        tilemap.SetTile(cellPosition, endTile);
                 }
             }
         }
     }
 
-    // Ensures the top-right corner has a valid path to at least one adjacent tile
     void EnsurePathToTopRight()
     {
         int endX = width;
         int endY = height;
 
-        // If there is a wall to the left, clear it
         if (IsInBounds(endX - 1, endY) && maze[endX - 1, endY] == 0)
         {
-            maze[endX - 1, endY] = 1;  // Clear path to the left
+            maze[endX - 1, endY] = 1;
         }
-        // If there is a wall below, clear it
         else if (IsInBounds(endX, endY - 1) && maze[endX, endY - 1] == 0)
         {
-            maze[endX, endY - 1] = 1;  // Clear path below
+            maze[endX, endY - 1] = 1;
         }
     }
 }

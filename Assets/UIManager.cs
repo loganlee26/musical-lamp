@@ -12,6 +12,7 @@ public class UIManager : MonoBehaviour
     public GameObject settingsPanel;  // Reference to the settings panel
     public MazeGenerator mazeGenerator;  // Reference to the MazeGenerator script
     public PlayerController playerController;  // Reference to the PlayerController script
+    public Image keyIcon;
 
     public GameObject settingsContent;  // The content holding the regular settings UI (buttons, sliders, etc.)
     public GameObject congratsContent;  // The content showing the congrats message inside the settings panel
@@ -79,8 +80,13 @@ public class UIManager : MonoBehaviour
         congratsContent.SetActive(true);
 
         // Optionally, set the message text if you want to change it dynamically
-        congratsMessage.text = "Congratulations! You've solved the maze in " + elapsedTime.ToString("F2") + " seconds!";
+        congratsMessage.text = "Congratulations!\nYou've solved the maze in " + elapsedTime.ToString("F2") + " seconds!";
         ToggleSettingsPanel();
+    }
+
+    public void ShowKeyIcon()
+    {
+        keyIcon.enabled = true;
     }
 
     // Restart the game by resetting everything
@@ -91,14 +97,18 @@ public class UIManager : MonoBehaviour
         isGameOver = false;
         timeDisplay.text = "Time: 0.00s";  // Reset the time display text
         Time.timeScale = 1;  // Ensure the game is resumed (in case it was paused)
+        keyIcon.enabled = false;
 
         // Reset the maze (this will regenerate the maze)
         mazeGenerator.GenerateMaze(1, 1);  // You can customize this method to reset the maze to its starting state
+        mazeGenerator.FindSolutionPath();  // Find the new solution path after resetting the maze
+        mazeGenerator.PlaceDoor();  // Place the door in the new maze layout
+        mazeGenerator.PlaceKey();  // Place the key in the new maze layout
         mazeGenerator.DrawMaze();
 
         // Reset the player's position (assuming the player starts at (0,0))
-        playerController.transform.position = new Vector3(1.5f, 1.5f, 0);  // Reset the player's position (you can change it if needed)
-
+        //playerController.transform.position = new Vector3(1.5f, 1.5f, 0);  // Reset the player's position (you can change it if needed)
+        playerController.ResetPlayer();
         // Hide the settings panel if it's open
         settingsPanel.SetActive(false);
 
